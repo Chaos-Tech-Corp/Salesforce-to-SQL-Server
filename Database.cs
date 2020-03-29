@@ -218,6 +218,29 @@ public class Database : IDisposable
         }
     }
 
+    public int TryExecuteSQL(string query, params KeyValuePair<string, object>[] Parameters)
+    {
+        try
+        {
+            return ExecuteSQL(query, Parameters);
+        } catch
+        {
+            return -1;
+        }
+    }
+
+    public int TryExecuteSQL(string query, SortedDictionary<string, object> Parameters)
+    {
+        try
+        {
+            return ExecuteSQL(query, Parameters);
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
     public object ExecuteInsertSQL(string query, SortedDictionary<string, object> Parameters)
     {
         List<KeyValuePair<string, object>> kvParam = new List<KeyValuePair<string, object>>();

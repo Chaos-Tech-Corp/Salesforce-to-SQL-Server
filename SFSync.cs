@@ -24,6 +24,13 @@ class SFSync
         _databaseName = databaseName;
     }
 
+    public void SetupDatabase()
+    {
+        _db.TryExecuteSQL("create schema " + _schemaData);
+        _db.TryExecuteSQL("create schema " + _schemaObjects);
+        _db.TryExecuteSQL("create table [" + _schemaData + "].[TablesToSkip] (tableName varchar(128) not null)");
+    }
+
     public void Start()
     {
         if (_db == null)
@@ -46,7 +53,7 @@ class SFSync
             Boolean isHistoryTable = o.QualifiedApiName != "LoginHistory" && o.QualifiedApiName.EndsWith("History");
 
             //filter the type of objects to synchronize
-            if (o.IsQueryable && !o.IsDeprecatedAndHidden && !o.IsCustomSetting) //&& o.IsLayoutable 
+            if (o.IsQueryable && !o.IsDeprecatedAndHidden && !o.IsCustomSetting && o.IsLayoutable)
             {
                 //do not sync Feed, Share and Tag tables for the objects.
                 if (o.QualifiedApiName.EndsWith("Feed") || o.QualifiedApiName.EndsWith("Share") || o.QualifiedApiName.EndsWith("Tag"))
@@ -71,11 +78,20 @@ class SFSync
                     continue;
                 }
 
-                //Console.WriteLine(o.Label + " | " + o.QualifiedApiName + " | " + o.IsQueryable);
+                //some objects need filter to be queried, so we skip them
+                List<string> nonQueriableObjects = new List<string>() { "ContentDocumentLink", "ContentFolderItem" };
+                if (nonQueriableObjects.Contains(o.QualifiedApiName))
+                {
+                    continue;
+                }
+
+                Console.WriteLine(o.Label + " | " + o.QualifiedApiName + " | " + o.IsQueryable);
 
                 string dateFieldName ;
                 var oDefinition = UpdateObjectDefinition(o, out dateFieldName);
 
+                //cannot find a date field, skip the object
+                if (oDefinition == null) continue;
 
                 //remove fields that we don't want to download. --> this will exclude BLOB and long text fields
                 oDefinition.fields = oDefinition.fields.Where(F => F.type != "base64" && (F.type != "textarea" || (F.type == "textarea" && F.length <= 32768))).ToList();
@@ -176,8 +192,7 @@ class SFSync
                     }
                 }
 
-                //limit only certain objects
-                Boolean useLimit = (o.QualifiedApiName == "ContentVersion" || o.QualifiedApiName == "ContentDocument" || o.QualifiedApiName == "ContentDocumentLink");
+                Boolean useLimit = (o.QualifiedApiName == "ContentVersion" || o.QualifiedApiName == "ContentDocument");
 
                 /* Find New / Updated Records*/
                 /*===========================*/
@@ -246,9 +261,11 @@ class SFSync
                     while (!string.IsNullOrEmpty(nextPageUrl) || pageCount == 0)
                     {
                         pageCount++;
+                        Console.SetCursorPosition(1, Console.CursorTop - 1);
+                        Console.WriteLine("| Page: " + pageCount + " - Records: " + currentCount.ToString("#,##0"));
                         Tuple<List<dynamic>, string> recordsQuery;
                         while (true)
-                        {
+                            {
                             try
                             {
                                 recordsQuery = _client.GetRecordsPaged(query, nextPageUrl, queryAll).Result;
@@ -328,7 +345,7 @@ class SFSync
                     }
                     GC.Collect();
 
-
+                    Console.WriteLine("| Total Count: " + currentCount);
                 }
 
 
@@ -389,11 +406,13 @@ class SFSync
     /// </summary>
     public List<EntityDefinition> ProcessObjectMetadata()
     {
+        Console.WriteLine("Process Object Metadata");
         var objects = _client.QueryRecords<EntityDefinition>("SELECT QualifiedApiName,IsSearchable,IsRetrieveable, DeveloperName, IsFeedEnabled, IsCustomizable, DurableId, IsQueryable, IsLayoutable, IsDeprecatedAndHidden, IsCustomSetting, KeyPrefix, Label, NamespacePrefix FROM EntityDefinition").Result;
 
         if (!_db.ExistTable(_schemaData, "EntityDefinition"))
         {
-            _db.ExecuteSQL(@"create table [sf_sync].[EntityDefinition] (
+            Console.WriteLine(" - Creating table [EntityDefinition]");
+            _db.ExecuteSQL(@"create table [" + _schemaData + @"].[EntityDefinition] (
                 QualifiedApiName varchar(128) not null,
                 DeveloperName varchar(128) not null,
                 DurableId varchar(64) not null,
@@ -412,7 +431,8 @@ class SFSync
         }
         if (!_db.ExistTable(_schemaData, "ObjectDescription"))
         {
-            _db.ExecuteSQL(@"create table [sf_sync].[ObjectDescription] (
+            Console.WriteLine(" - Creating table [ObjectDescription]");
+            _db.ExecuteSQL(@"create table [" + _schemaData + @"].[ObjectDescription] (
                 ObjectName varchar(128) not null,
                 Label varchar(128) not null,
                 Name varchar(128) not null,
@@ -454,6 +474,8 @@ class SFSync
             dt_EntityDef.Rows.Add(nr);
         }
         _db.InsertDataTable(dt_EntityDef);
+
+        Console.WriteLine("Metadata completed.");
 
         return objects;
     }
@@ -509,6 +531,9 @@ class SFSync
             {
                 dateFieldName = "LoginTime";
             }
+        } else
+        {
+            dateFieldName = "SystemModstamp";
         }
 
         //if the object has no date field to use, skip
@@ -596,13 +621,13 @@ class SFSync
             case "string": return "varchar(" + field.length + ") null";
             case "date": return "datetime null";
             case "textarea": return "varchar(max) null";
-            case "double": return "decimal (18,4) null";
+            case "double": return "decimal (22,4) null";
             case "address": return "varchar(max) null";
             case "int": return "int null";
             case "multipicklist": return "varchar(max) null";
             case "anyType": return "varchar(max) null";
             case "url": return "varchar(" + field.length + ") null";
-            case "currency": return "decimal (18,4) null";
+            case "currency": return "decimal (22,4) null";
             case "percent": return "decimal (6,3) null";
             case "phone": return "varchar(" + field.length + ") null";
             case "email": return "varchar(" + field.length + ") null";
