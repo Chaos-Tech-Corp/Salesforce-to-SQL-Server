@@ -43,6 +43,7 @@ class SFSync
 
         var existingObjects = ProcessObjectMetadata();
         var tablesToSkip = ObjectsToSkip();
+        var namespacesToSkip = new List<string>() {"ffirule","ffpd_dm","ffvat","ffbf","fferpcore","ffps","pi" ,"PowerLoader"};
 
         //if you want to delete any tables not realted to existing salesforce objects
         RemoveTables(existingObjects);
@@ -50,10 +51,11 @@ class SFSync
         foreach (var o in existingObjects.OrderBy(O => O.QualifiedApiName))
         {
 
+
             Boolean isHistoryTable = o.QualifiedApiName != "LoginHistory" && o.QualifiedApiName.EndsWith("History");
 
             //filter the type of objects to synchronize
-            if (o.IsQueryable && !o.IsDeprecatedAndHidden && !o.IsCustomSetting && o.IsLayoutable)
+            if (o.IsQueryable && !o.IsDeprecatedAndHidden && !o.IsCustomSetting)
             {
                 //do not sync Feed, Share and Tag tables for the objects.
                 if (o.QualifiedApiName.EndsWith("Feed") || o.QualifiedApiName.EndsWith("Share") || o.QualifiedApiName.EndsWith("Tag"))
@@ -77,6 +79,18 @@ class SFSync
                     }
                     continue;
                 }
+
+                //skip objects from a namespace
+                bool skipNamespace = false;
+                foreach (var name in namespacesToSkip)
+                {
+                    if (o.QualifiedApiName.StartsWith(name + "__"))
+                    {
+                        skipNamespace = true;
+                        break;
+                    }
+                }
+                if (skipNamespace) continue;
 
                 //some objects need filter to be queried, so we skip them
                 List<string> nonQueriableObjects = new List<string>() { "ContentDocumentLink", "ContentFolderItem" };
@@ -295,7 +309,14 @@ class SFSync
                                 }
                                 else
                                 {
-                                    row[field.name] = entry[field.name].Value ?? DBNull.Value;
+                                    try
+                                    {
+                                        row[field.name] = entry[field.name].Value ?? DBNull.Value;
+                                    }
+                                    catch
+                                    {
+                                        row[field.name] = DBNull.Value;
+                                    }
                                 }
                                 if (DataType(field).StartsWith("varchar"))
                                 {

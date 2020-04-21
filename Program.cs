@@ -6,7 +6,13 @@ namespace Salesforce_to_SQLServer
     {
         static void Main(string[] args)
         {
-            Console.WriteLine("Hello World!");
+
+            var sf = new SFSync("salesforce:username", "salesforce:password", "salesforce:token", "salesforce:application:key", "salesforce:application:secret");
+
+            sf.Connect("connection:string", "databaseName");
+            sf.SetupDatabase();
+            sf.Start();
+
         }
     }
 }
